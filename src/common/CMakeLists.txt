@@ -31,6 +31,8 @@ add_library(common STATIC
     bit_set.h
     break_points.cpp
     break_points.h
+    crash_handler.cpp
+    crash_handler.h
     chunk_file.h
     code_block.h
     color.h
@@ -75,6 +77,7 @@ add_library(common STATIC
     threadsafe_queue.h
     timer.cpp
     timer.h
+    ui_util.h
     vector_math.h
 )
 
