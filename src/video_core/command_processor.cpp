@@ -289,6 +289,7 @@ static void WritePicaReg(u32 id, u32 value, u32 mask) {
         // Later, these can be compiled and cached.
         const u32 base_address = regs.pipeline.vertex_attributes.GetPhysicalBaseAddress();
         VertexLoader loader(regs.pipeline);
+        Pica::Shader::OutputVertex::ValidateSemantics(regs.rasterizer);
 
         // Load vertices
         bool is_indexed = (id == PICA_REG_INDEX(pipeline.trigger_draw_indexed));

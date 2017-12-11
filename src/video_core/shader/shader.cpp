@@ -21,32 +21,39 @@ namespace Pica {
 
 namespace Shader {
 
+void OutputVertex::ValidateSemantics(const RasterizerRegs& regs) {
+    unsigned int num_attributes = regs.vs_output_total;
+    ASSERT(num_attributes <= 7);
+    for (unsigned int i = 0; i < num_attributes; ++i) {
+        u32 output_register_map = regs.vs_output_attributes[i].raw;
+        for (unsigned int j = 0; j < 4; j++) {
+            auto semantic = output_register_map & 0x1F;
+            ASSERT_MSG(semantic < 24 ||
+                semantic == RasterizerRegs::VSOutputAttributes::INVALID,
+                "Invalid/unknown semantic id: %u", (unsigned int)semantic);
+            output_register_map >>= 8;
+        }
+    }
+}
+
 OutputVertex OutputVertex::FromAttributeBuffer(const RasterizerRegs& regs,
                                                const AttributeBuffer& input) {
     // Setup output data
     union {
-        OutputVertex ret{};
+        OutputVertex ret {};
         std::array<float24, 24> vertex_slots;
+        // Allow us to overflow vertex_slots to avoid branches
+        std::array<float24, 32> vertex_slots_overflow;
     };
     static_assert(sizeof(vertex_slots) == sizeof(ret), "Struct and array have different sizes.");
 
-    unsigned int num_attributes = regs.vs_output_total;
-    ASSERT(num_attributes <= 7);
+    unsigned int num_attributes = regs.vs_output_total & 7;
     for (unsigned int i = 0; i < num_attributes; ++i) {
-        const auto& output_register_map = regs.vs_output_attributes[i];
-
-        RasterizerRegs::VSOutputAttributes::Semantic semantics[4] = {
-            output_register_map.map_x, output_register_map.map_y, output_register_map.map_z,
-            output_register_map.map_w};
-
-        for (unsigned comp = 0; comp < 4; ++comp) {
-            RasterizerRegs::VSOutputAttributes::Semantic semantic = semantics[comp];
-            if (semantic < vertex_slots.size()) {
-                vertex_slots[semantic] = input.attr[i][comp];
-            } else if (semantic != RasterizerRegs::VSOutputAttributes::INVALID) {
-                LOG_ERROR(HW_GPU, "Invalid/unknown semantic id: %u", (unsigned int)semantic);
-            }
-        }
+        u32 output_register_map = regs.vs_output_attributes[i].raw;
+        vertex_slots_overflow[output_register_map & 0x1F] = input.attr[i][0];
+        vertex_slots_overflow[(output_register_map >> 8) & 0x1F] = input.attr[i][1];
+        vertex_slots_overflow[(output_register_map >> 16) & 0x1F] = input.attr[i][2];
+        vertex_slots_overflow[(output_register_map >> 24) & 0x1F] = input.attr[i][3];
     }
 
     // The hardware takes the absolute and saturates vertex colors like this, *before* doing
