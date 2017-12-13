@@ -24,13 +24,12 @@ namespace Shader {
 void OutputVertex::ValidateSemantics(const RasterizerRegs& regs) {
     unsigned int num_attributes = regs.vs_output_total;
     ASSERT(num_attributes <= 7);
-    for (unsigned int i = 0; i < num_attributes; ++i) {
+    for (size_t i = 0; i < num_attributes; ++i) {
         u32 output_register_map = regs.vs_output_attributes[i].raw;
-        for (unsigned int j = 0; j < 4; j++) {
-            auto semantic = output_register_map & 0x1F;
-            ASSERT_MSG(semantic < 24 ||
-                semantic == RasterizerRegs::VSOutputAttributes::INVALID,
-                "Invalid/unknown semantic id: %u", (unsigned int)semantic);
+        for (size_t j = 0; j < 4; j++) {
+            u32 semantic = output_register_map & 0x1F;
+            ASSERT_MSG(semantic < 24 || semantic == RasterizerRegs::VSOutputAttributes::INVALID,
+                       "Invalid/unknown semantic id: %u", semantic);
             output_register_map >>= 8;
         }
     }
@@ -40,7 +39,7 @@ OutputVertex OutputVertex::FromAttributeBuffer(const RasterizerRegs& regs,
                                                const AttributeBuffer& input) {
     // Setup output data
     union {
-        OutputVertex ret {};
+        OutputVertex ret{};
         std::array<float24, 24> vertex_slots;
         // Allow us to overflow vertex_slots to avoid branches
         std::array<float24, 32> vertex_slots_overflow;
@@ -48,7 +47,7 @@ OutputVertex OutputVertex::FromAttributeBuffer(const RasterizerRegs& regs,
     static_assert(sizeof(vertex_slots) == sizeof(ret), "Struct and array have different sizes.");
 
     unsigned int num_attributes = regs.vs_output_total & 7;
-    for (unsigned int i = 0; i < num_attributes; ++i) {
+    for (size_t i = 0; i < num_attributes; ++i) {
         u32 output_register_map = regs.vs_output_attributes[i].raw;
         vertex_slots_overflow[output_register_map & 0x1F] = input.attr[i][0];
         vertex_slots_overflow[(output_register_map >> 8) & 0x1F] = input.attr[i][1];
