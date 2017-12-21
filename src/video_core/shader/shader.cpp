@@ -2,6 +2,7 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <cinttypes>
 #include <cmath>
 #include <cstring>
 #include "common/bit_set.h"
@@ -24,12 +25,12 @@ namespace Shader {
 void OutputVertex::ValidateSemantics(const RasterizerRegs& regs) {
     unsigned int num_attributes = regs.vs_output_total;
     ASSERT(num_attributes <= 7);
-    for (size_t attrib = 0; attrib < num_attributes; attrib++) {
+    for (size_t attrib = 0; attrib < num_attributes; ++attrib) {
         u32 output_register_map = regs.vs_output_attributes[attrib].raw;
-        for (size_t comp = 0; comp < 4; comp++) {
+        for (size_t comp = 0; comp < 4; ++comp) {
             u32 semantic = output_register_map & 0x1F;
             ASSERT_MSG(semantic < 24 || semantic == RasterizerRegs::VSOutputAttributes::INVALID,
-                       "Invalid/unknown semantic id: %u", semantic);
+                       "Invalid/unknown semantic id: %" PRIu32, semantic);
             output_register_map >>= 8;
         }
     }
@@ -40,16 +41,17 @@ OutputVertex OutputVertex::FromAttributeBuffer(const RasterizerRegs& regs,
     // Setup output data
     union {
         OutputVertex ret{};
-        std::array<float24, 24> vertex_slots;
-        // Allow us to overflow vertex_slots to avoid branches, since
+        // Allow us to overflow OutputVertex to avoid branches, since
         // RasterizerRegs::VSOutputAttributes::INVALID would write to slot 31, which
         // would be out of bounds otherwise.
         std::array<float24, 32> vertex_slots_overflow;
     };
-    static_assert(sizeof(vertex_slots) == sizeof(ret), "Struct and array have different sizes.");
+
+    // Assert that OutputVertex has enough space for 24 semantic registers
+    static_assert(sizeof(std::array<float24, 24>) == sizeof(ret), "Struct and array have different sizes.");
 
     unsigned int num_attributes = regs.vs_output_total & 7;
-    for (size_t attrib = 0; attrib < num_attributes; attrib++) {
+    for (size_t attrib = 0; attrib < num_attributes; ++attrib) {
         u32 output_register_map = regs.vs_output_attributes[attrib].raw;
         vertex_slots_overflow[output_register_map & 0x1F] = input.attr[attrib][0];
         vertex_slots_overflow[(output_register_map >> 8) & 0x1F] = input.attr[attrib][1];
