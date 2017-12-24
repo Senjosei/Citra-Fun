@@ -13,7 +13,7 @@ environment:
   # Tell msys2 to inherit the current directory when starting the shell
   CHERE_INVOKING: 1
   matrix:
-    - BUILD_TYPE: mingw
+    # - BUILD_TYPE: mingw
     - BUILD_TYPE: msvc
 
 platform:
@@ -143,15 +143,17 @@ after_build:
           7z a $MINGW_SEVENZIP $RELEASE_DIST
         }
 
-test_script:
-  - cd %BUILD_TYPE%_build
-  - ps: |
-        if ($env:BUILD_TYPE -eq 'msvc') {
-          ctest -VV -C Release
-        } else {
-          C:\msys64\usr\bin\bash.exe -lc "ctest -VV -C Release"
-        }
-  - cd ..
+test: off
+
+# test_script:
+#   - cd %BUILD_TYPE%_build
+#   - ps: |
+#         if ($env:BUILD_TYPE -eq 'msvc') {
+#           ctest -VV -C Release
+#         } else {
+#           C:\msys64\usr\bin\bash.exe -lc "ctest -VV -C Release"
+#         }
+#   - cd ..
 
 artifacts:
   - path: $(BUILD_ZIP)
@@ -162,17 +164,17 @@ artifacts:
   - path: $(BUILD_UPDATE)
     name: update
 
-deploy:
-  provider: GitHub
-  release: $(appveyor_repo_tag_name)
-  auth_token:
-    secure: "dbpsMC/MgPKWFNJCXpQl4cR8FYhepkPLjgNp/pRMktZ8oLKTqPYErfreaIxb/4P1"
-  artifact: update,build
-  draft: false
-  prerelease: false
-  on:
-    appveyor_repo_tag: true
+# deploy:
+#   provider: GitHub
+#   release: $(appveyor_repo_tag_name)
+#   auth_token:
+#     secure: "dbpsMC/MgPKWFNJCXpQl4cR8FYhepkPLjgNp/pRMktZ8oLKTqPYErfreaIxb/4P1"
+#   artifact: update,build
+#   draft: false
+#   prerelease: false
+#   on:
+#     appveyor_repo_tag: true
 
-notifications:
-  - provider: Webhook
-    url: https://api.citra-emu.org/code/appveyor/notify
+# notifications:
+#   - provider: Webhook
+#     url: https://api.citra-emu.org/code/appveyor/notify
