@@ -24,7 +24,6 @@ if ($ENV{CI})
 endif()
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/scm_rev.cpp.in" "${CMAKE_CURRENT_SOURCE_DIR}/scm_rev.cpp" @ONLY)
 
-<<<<<<< 83d0939f5451c7652ed223a145760eeed31010b5
 add_library(common STATIC
     alignment.h
     assert.h
@@ -80,67 +79,8 @@ add_library(common STATIC
     timer.h
     ui_util.h
     vector_math.h
+    ui_util_windows.cpp
 )
-=======
-set(SRCS
-            break_points.cpp
-            crash_handler.cpp
-            file_util.cpp
-            hash.cpp
-            logging/filter.cpp
-            logging/text_formatter.cpp
-            logging/backend.cpp
-            memory_util.cpp
-            microprofile.cpp
-            misc.cpp
-            param_package.cpp
-            scm_rev.cpp
-            string_util.cpp
-            telemetry.cpp
-            thread.cpp
-            timer.cpp
-            )
-
-set(HEADERS
-            alignment.h
-            assert.h
-            bit_field.h
-            bit_set.h
-            break_points.h
-            chunk_file.h
-            code_block.h
-            color.h
-            common_funcs.h
-            common_paths.h
-            common_types.h
-            crash_handler.h
-            file_util.h
-            hash.h
-            linear_disk_cache.h
-            logging/text_formatter.h
-            logging/filter.h
-            logging/log.h
-            logging/backend.h
-            math_util.h
-            memory_util.h
-            microprofile.h
-            microprofileui.h
-            param_package.h
-            platform.h
-            quaternion.h
-            scm_rev.h
-            scope_exit.h
-            string_util.h
-            swap.h
-            synchronized_wrapper.h
-            telemetry.h
-            thread.h
-            thread_queue_list.h
-            timer.h
-            ui_util.h
-            vector_math.h
-            )
->>>>>>> ui_util: Implement ShowInFileBrowser
 
 if(ARCHITECTURE_x86_64)
     target_sources(common
@@ -153,25 +93,7 @@ if(ARCHITECTURE_x86_64)
     )
 endif()
 
-<<<<<<< 83d0939f5451c7652ed223a145760eeed31010b5
 create_target_directory_groups(common)
-=======
-if (WIN32)
-    set(SRCS ${SRCS}
-            ui_util_windows.cpp
-            )
-elseif (APPLE)
-    set(SRCS ${SRCS}
-            ui_util_macos.mm
-            )
-else()
-    set(SRCS ${SRCS}
-            ui_util_linux.cpp
-            )
-endif()
-
-create_directory_groups(${SRCS} ${HEADERS})
->>>>>>> ui_util: Implement ShowInFileBrowser
 
 target_link_libraries(common PUBLIC Boost::boost microprofile)
 if (ARCHITECTURE_x86_64)
