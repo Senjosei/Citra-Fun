@@ -9,7 +9,6 @@
 #include "core/core.h"
 #include "core/hle/ipc.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/event.h"
 #include "core/hle/kernel/handle_table.h"
 #include "core/hle/kernel/shared_memory.h"
 #include "core/hle/result.h"
@@ -50,6 +49,9 @@ constexpr ResultCode ERR_REGS_MISALIGNED(ErrorDescription::MisalignedSize, Error
 constexpr ResultCode ERR_REGS_INVALID_SIZE(ErrorDescription::InvalidSize, ErrorModule::GX,
                                            ErrorSummary::InvalidArgument,
                                            ErrorLevel::Usage); // 0xE0E02BEC
+
+/// Maximum number of threads that can be registered at the same time in the GSP module.
+constexpr u32 MaxGSPThreads = 4;
 
 /// Gets a pointer to a thread command buffer in GSP shared memory
 static inline u8* GetCommandBuffer(Kernel::SharedPtr<Kernel::SharedMemory> shared_memory,
@@ -319,11 +321,19 @@ void GSP_GPU::RegisterInterruptRelayQueue(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0x13, 1, 2);
     u32 flags = rp.Pop<u32>();
 
-    interrupt_event = rp.PopObject<Kernel::Event>();
+    auto interrupt_event = rp.PopObject<Kernel::Event>();
     // TODO(mailwl): return right error code instead assert
     ASSERT_MSG((interrupt_event != nullptr), "handle is not valid!");
 
     interrupt_event->name = "GSP_GSP_GPU::interrupt_event";
+
+    u32 thread_id = next_thread_id++;
+    ASSERT_MSG(thread_id < MaxGSPThreads, "GSP thread id overflow");
+
+    SessionData* session_data = GetSessionData(ctx.Session());
+    session_data->thread_id = thread_id;
+    session_data->interrupt_event = std::move(interrupt_event);
+    session_data->registered = true;
 
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
 
@@ -338,22 +348,23 @@ void GSP_GPU::RegisterInterruptRelayQueue(Kernel::HLERequestContext& ctx) {
     rb.Push(thread_id);
     rb.PushCopyObjects(shared_memory);
 
-    thread_id++;
-    interrupt_event->Signal(); // TODO(bunnei): Is this correct?
-
-    LOG_WARNING(Service_GSP, "called, flags=0x%08X", flags);
+    LOG_DEBUG(Service_GSP, "called, flags=0x%08X", flags);
 }
 
 void GSP_GPU::UnregisterInterruptRelayQueue(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0x14, 0, 0);
 
-    thread_id = 0;
-    interrupt_event = nullptr;
+    SessionData* session_data = GetSessionData(ctx.Session());
+    session_data->thread_id = 0;
+    session_data->interrupt_event = nullptr;
+    session_data->registered = false;
+
+    // TODO(Subv): Reset next_thread_id so that it doesn't go past the maximum of 4.
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
 
-    LOG_WARNING(Service_GSP, "(STUBBED) called");
+    LOG_DEBUG(Service_GSP, "called");
 }
 
 /**
@@ -363,18 +374,32 @@ void GSP_GPU::UnregisterInterruptRelayQueue(Kernel::HLERequestContext& ctx) {
  * @todo This probably does not belong in the GSP module, instead move to video_core
  */
 void GSP_GPU::SignalInterrupt(InterruptId interrupt_id) {
-    if (!gpu_right_acquired) {
+    // Don't do anything if no process has acquired the GPU right.
+    if (active_thread_id == -1)
         return;
-    }
-    if (nullptr == interrupt_event) {
-        LOG_WARNING(Service_GSP, "cannot synchronize until GSP event has been created!");
-        return;
-    }
+
     if (nullptr == shared_memory) {
         LOG_WARNING(Service_GSP, "cannot synchronize until GSP shared memory has been created!");
         return;
     }
-    for (int thread_id = 0; thread_id < 0x4; ++thread_id) {
+
+    // Normal interrupts are only signaled for the active thread (ie, the thread that has the GPU
+    // right), but the PDC0/1 interrupts are signaled for every registered thread.
+    for (int thread_id = 0; thread_id < MaxGSPThreads; ++thread_id) {
+        if (interrupt_id != InterruptId::PDC0 && interrupt_id != InterruptId::PDC1) {
+            // Ignore threads that aren't the current active thread
+            if (thread_id != active_thread_id)
+                continue;
+        }
+        SessionData* session_data = FindRegisteredThreadData(thread_id);
+        if (session_data == nullptr)
+            continue;
+
+        auto interrupt_event = session_data->interrupt_event;
+        if (interrupt_event == nullptr) {
+            LOG_WARNING(Service_GSP, "cannot synchronize until GSP event has been created!");
+            continue;
+        }
         InterruptRelayQueue* interrupt_relay_queue =
             GetInterruptRelayQueue(shared_memory, thread_id);
         u8 next = interrupt_relay_queue->index;
@@ -389,6 +414,8 @@ void GSP_GPU::SignalInterrupt(InterruptId interrupt_id) {
         // Update framebuffer information if requested
         // TODO(yuriks): Confirm where this code should be called. It is definitely updated without
         //               executing any GSP commands, only waiting on the event.
+        // TODO(Subv): The real GSP module triggers PDC0 after updating both the top and bottom
+        // screen, it is currently unknown what PDC1 does.
         int screen_id =
             (interrupt_id == InterruptId::PDC0) ? 0 : (interrupt_id == InterruptId::PDC1) ? 1 : -1;
         if (screen_id != -1) {
@@ -398,8 +425,8 @@ void GSP_GPU::SignalInterrupt(InterruptId interrupt_id) {
                 info->is_dirty.Assign(false);
             }
         }
+        interrupt_event->Signal();
     }
-    interrupt_event->Signal();
 }
 
 MICROPROFILE_DEFINE(GPU_GSP_DMA, "GPU", "GSP DMA", MP_RGB(100, 0, 255));
@@ -622,18 +649,34 @@ void GSP_GPU::AcquireRight(Kernel::HLERequestContext& ctx) {
     u32 flag = rp.Pop<u32>();
     auto process = rp.PopObject<Kernel::Process>();
 
-    gpu_right_acquired = true;
+    SessionData* session_data = GetSessionData(ctx.Session());
+
+    LOG_WARNING(Service_GSP, "called flag=%08X process=%u thread_id=%u", flag, process->process_id,
+                session_data->thread_id);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
-    rb.Push(RESULT_SUCCESS);
 
-    LOG_WARNING(Service_GSP, "called flag=%08X process=%u", flag, process->process_id);
+    if (active_thread_id == session_data->thread_id) {
+        rb.Push(ResultCode(ErrorDescription::AlreadyDone, ErrorModule::GX, ErrorSummary::Success,
+                           ErrorLevel::Success));
+        return;
+    }
+
+    // TODO(Subv): This case should put the caller thread to sleep until the right is released.
+    ASSERT_MSG(active_thread_id == -1, "GPU right has already been acquired");
+
+    active_thread_id = session_data->thread_id;
+
+    rb.Push(RESULT_SUCCESS);
 }
 
 void GSP_GPU::ReleaseRight(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0x17, 0, 0);
 
-    gpu_right_acquired = false;
+    SessionData* session_data = GetSessionData(ctx.Session());
+    ASSERT_MSG(active_thread_id == session_data->thread_id,
+               "Wrong thread tried to release GPU right");
+    active_thread_id = -1;
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
@@ -653,6 +696,17 @@ void GSP_GPU::StoreDataCache(Kernel::HLERequestContext& ctx) {
 
     LOG_DEBUG(Service_GSP, "(STUBBED) called address=0x%08X, size=0x%08X, process=%u", address,
               size, process->process_id);
+}
+
+SessionData* GSP_GPU::FindRegisteredThreadData(u32 thread_id) {
+    for (auto& session_info : connected_sessions) {
+        SessionData* data = static_cast<SessionData*>(session_info.data.get());
+        if (!data->registered)
+            continue;
+        if (data->thread_id == thread_id)
+            return data;
+    }
+    return nullptr;
 }
 
 GSP_GPU::GSP_GPU() : ServiceFramework("gsp::Gpu", 2) {
@@ -691,17 +745,12 @@ GSP_GPU::GSP_GPU() : ServiceFramework("gsp::Gpu", 2) {
     };
     RegisterHandlers(functions);
 
-    interrupt_event = nullptr;
-
     using Kernel::MemoryPermission;
     shared_memory = Kernel::SharedMemory::Create(nullptr, 0x1000, MemoryPermission::ReadWrite,
                                                  MemoryPermission::ReadWrite, 0,
                                                  Kernel::MemoryRegion::BASE, "GSP:SharedMemory");
 
-    thread_id = 0;
-    gpu_right_acquired = false;
     first_initialization = true;
 };
-
 } // namespace GSP
 } // namespace Service
