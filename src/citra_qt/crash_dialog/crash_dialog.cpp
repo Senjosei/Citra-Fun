@@ -15,7 +15,7 @@
 #include "ui_crash_dialog.h"
 
 static const char* GetGLString(GLenum name) {
-    const char* str = reinterpret_cast<const char*>(glGetString(name));
+    const char* str = reinterpret_cast<char const*>(glGetString(name));
     return str ? str : "(null)";
 }
 
