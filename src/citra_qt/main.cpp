@@ -930,7 +930,6 @@ void GMainWindow::OnCrashed(const Common::CrashInformation& crash_info) {
 }
 
 void GMainWindow::OnCoreError(Core::System::ResultStatus result, std::string details) {
-    this->SetRunning(false);
     QMessageBox::StandardButton answer;
     QString status_message;
     const QString common_message =
